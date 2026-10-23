@@ -93,10 +93,12 @@ jobs:
         run: |
           export PATH=/usr/lib/llvm-18/bin:$PATH
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out veux_defconfig
-          ./scripts/config --file out/.config -e KSU -d KSU_DEBUG -d KSU_MANUAL_HOOK -d KSU_KPROBES_HOOK -e KSU_SYSCALL_TABLE_HOOK -d DEBUG_INFO -d DEBUG_INFO_DWARF4 -d LTO -d LTO_CLANG -d CFI_CLANG
+          ./scripts/config --file out/.config -e KSU -d KSU_DEBUG -d KSU_MANUAL_HOOK -d KSU_KPROBES_HOOK -e KSU_SYSCALL_TABLE_HOOK -e DEBUG_KERNEL -e KALLSYMS -e KALLSYMS_ALL -d DEBUG_INFO -d DEBUG_INFO_DWARF4 -d LTO -d LTO_CLANG -d CFI_CLANG
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out olddefconfig
-          grep -E "CONFIG_KSU|CONFIG_KPROBES=|CONFIG_EXT4_FS=|CONFIG_LTO|CONFIG_CFI" out/.config || true
+          grep -E "CONFIG_KSU|CONFIG_KPROBES=|CONFIG_EXT4_FS=|CONFIG_LTO|CONFIG_CFI|CONFIG_KALLSYMS|CONFIG_DEBUG_KERNEL" out/.config || true
+          grep -q '^CONFIG_KALLSYMS_ALL=y' out/.config || { echo "FATAL: KALLSYMS_ALL not enabled"; exit 1; }
           make -j"$(nproc)" ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out Image
+          grep -E ' (sys_call_table|kallsyms_lookup_name|kallsyms_on_each_symbol)$' out/System.map || true
           ccache -s || true
           ls -l out/arch/arm64/boot/Image
 
