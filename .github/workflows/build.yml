@@ -33,7 +33,7 @@ jobs:
         run: |
           export PATH=/usr/lib/llvm-18/bin:$PATH
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out veux_defconfig
-          ./scripts/config --file out/.config -e KSU -d KSU_DEBUG
+          ./scripts/config --file out/.config -e KSU -d KSU_DEBUG -d DEBUG_INFO -d DEBUG_INFO_DWARF4 -d LTO -d LTO_CLANG -d CFI_CLANG
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out olddefconfig
           grep -E "CONFIG_KSU|CONFIG_KPROBES=|CONFIG_EXT4_FS=|CONFIG_LTO|CONFIG_CFI" out/.config || true
           make -j"$(nproc)" ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out Image
