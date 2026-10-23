@@ -1,9 +1,11 @@
 name: ksun-build
 on:
   workflow_dispatch:
+  workflow_dispatch:
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on:
+  workflow_dispatch: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Checkout
