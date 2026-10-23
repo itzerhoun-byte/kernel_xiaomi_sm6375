@@ -1,12 +1,10 @@
 name: ksun-build
 on:
   workflow_dispatch:
-  push:
-    branches: [ "17" ]
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -15,7 +13,13 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev libelf-dev cpio lz4 zstd clang-18 lld-18 llvm-18
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev cpio lz4 zstd clang-18 lld-18 llvm-18 ccache
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-ksun-${{ github.sha }}
+          restore-keys: ccache-ksun-
       - name: Integrate KernelSU-Next
         run: |
           git clone --depth 1 --branch v3.4.2 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
@@ -23,13 +27,17 @@ jobs:
           grep -q "kernelsu" drivers/Makefile || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
           grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
       - name: Build
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+          CCACHE_MAXSIZE: 4G
         run: |
           export PATH=/usr/lib/llvm-18/bin:$PATH
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 O=out veux_defconfig
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out veux_defconfig
           ./scripts/config --file out/.config -e KSU -d KSU_DEBUG
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 O=out olddefconfig
-          grep -E "CONFIG_KSU|CONFIG_KPROBES=|CONFIG_EXT4_FS=" out/.config || true
-          make -j"$(nproc)" ARCH=arm64 LLVM=1 LLVM_IAS=1 O=out Image
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out olddefconfig
+          grep -E "CONFIG_KSU|CONFIG_KPROBES=|CONFIG_EXT4_FS=|CONFIG_LTO|CONFIG_CFI" out/.config || true
+          make -j"$(nproc)" ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out Image
+          ccache -s || true
           ls -l out/arch/arm64/boot/Image
       - name: Upload Image
         uses: actions/upload-artifact@v4
