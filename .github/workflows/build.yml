@@ -1,86 +1,90 @@
 name: ksun-build
+
 on:
   workflow_dispatch:
+
 jobs:
   build:
-    runs-on:
-  workflow_dispatch: ubuntu-24.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
       - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison flex libssl-dev libelf-dev cpio lz4 zstd clang-18 lld-18 llvm-18 ccache
+
       - name: ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
           key: ccache-ksun-${{ github.sha }}
           restore-keys: ccache-ksun-
+
       - name: Integrate KernelSU-Next
         run: |
           git clone --depth 1 --branch legacy https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
           ln -sf "$(realpath --relative-to=drivers KernelSU-Next/kernel)" drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
           grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
       - name: Pre-patch kernel for KSU legacy
         run: |
-          # patch_memory.c: use copy_to_kernel_nofault on 5.4 too
           sed -i 's/#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)/#if 0/' drivers/kernelsu/hook/patch_memory.c || true
-          # fs/namespace.c: add can_umount and path_umount if missing
           if ! grep -q '^int path_umount' fs/namespace.c; then
-            python3 -c "
-import sys
-p='fs/namespace.c'
-s=open(p).read()
-can=r'''static int can_umount(const struct path *path, int flags)
-{
-        struct mount *mnt = real_mount(path->mnt);
-        if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
-                return -EINVAL;
-        if (!may_mount())
-                return -EPERM;
-        if (path->dentry != path->mnt->mnt_root)
-                return -EINVAL;
-        if (!check_mnt(mnt))
-                return -EINVAL;
-        if (mnt->mnt.mnt_flags & MNT_LOCKED)
-                return -EINVAL;
-        if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
-                return -EPERM;
-        return 0;
-}
-'''
-um=r'''int path_umount(struct path *path, int flags)
-{
-        struct mount *mnt = real_mount(path->mnt);
-        int ret;
-        ret = can_umount(path, flags);
-        if (!ret)
-                ret = do_umount(mnt, flags);
-        dput(path->dentry);
-        mntput_no_expire(mnt);
-        return ret;
-}
-'''
-if 'static bool is_mnt_ns_file' in s and 'int path_umount' not in s:
-    s=s.replace('static bool is_mnt_ns_file', can+um+'static bool is_mnt_ns_file', 1)
-    open(p,'w').write(s)
-    print('patched namespace.c')
-"
+            python3 - <<'PY'
+          p = 'fs/namespace.c'
+          s = open(p).read()
+          can = '''static int can_umount(const struct path *path, int flags)
+          {
+                  struct mount *mnt = real_mount(path->mnt);
+                  if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
+                          return -EINVAL;
+                  if (!may_mount())
+                          return -EPERM;
+                  if (path->dentry != path->mnt->mnt_root)
+                          return -EINVAL;
+                  if (!check_mnt(mnt))
+                          return -EINVAL;
+                  if (mnt->mnt.mnt_flags & MNT_LOCKED)
+                          return -EINVAL;
+                  if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
+                          return -EPERM;
+                  return 0;
+          }
+          '''
+          um = '''int path_umount(struct path *path, int flags)
+          {
+                  struct mount *mnt = real_mount(path->mnt);
+                  int ret;
+                  ret = can_umount(path, flags);
+                  if (!ret)
+                          ret = do_umount(mnt, flags);
+                  dput(path->dentry);
+                  mntput_no_expire(mnt);
+                  return ret;
+          }
+          '''
+          if 'static bool is_mnt_ns_file' in s and 'int path_umount' not in s:
+              s = s.replace('static bool is_mnt_ns_file', can + um + 'static bool is_mnt_ns_file', 1)
+              open(p, 'w').write(s)
+              print('patched namespace.c')
+          PY
           fi
-          # fs/internal.h
           grep -q 'int path_umount' fs/internal.h || sed -i '/^extern void __init mnt_init/a int path_umount(struct path *path, int flags);' fs/internal.h
-          # seccomp
-          grep -q 'atomic_t filter_count' include/linux/seccomp.h || (sed -i '/int mode;/a\	atomic_t filter_count;' include/linux/seccomp.h && sed -i '/#include <linux\/thread_info.h>/a\#include <linux/atomic.h>' include/linux/seccomp.h)
+          if ! grep -q 'atomic_t filter_count' include/linux/seccomp.h; then
+            sed -i '/^\tint mode;/a\\tatomic_t filter_count;' include/linux/seccomp.h
+            sed -i '/#include <linux\/thread_info.h>/a #include <linux/atomic.h>' include/linux/seccomp.h
+          fi
           echo "--- checks ---"
           grep -n '^int path_umount' fs/namespace.c | head -2
           grep -n 'path_umount' fs/internal.h
           grep -n 'filter_count' include/linux/seccomp.h | head -1
+
       - name: Build
         env:
           CCACHE_DIR: /home/runner/.ccache
@@ -95,6 +99,7 @@ if 'static bool is_mnt_ns_file' in s and 'int path_umount' not in s:
           make -j"$(nproc)" ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out Image
           ccache -s || true
           ls -l out/arch/arm64/boot/Image
+
       - name: Upload Image
         uses: actions/upload-artifact@v4
         with:
