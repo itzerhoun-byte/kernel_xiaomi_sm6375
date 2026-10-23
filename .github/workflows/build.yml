@@ -22,7 +22,7 @@ jobs:
           restore-keys: ccache-ksun-
       - name: Integrate KernelSU-Next
         run: |
-          git clone --depth 1 --branch v3.4.2 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
+          git clone --depth 1 --branch legacy https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
           ln -sf "$(realpath --relative-to=drivers KernelSU-Next/kernel)" drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
           grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
