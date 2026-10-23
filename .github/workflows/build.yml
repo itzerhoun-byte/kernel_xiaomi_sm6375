@@ -30,6 +30,7 @@ jobs:
         env:
           CCACHE_DIR: /home/runner/.ccache
           CCACHE_MAXSIZE: 4G
+          KCFLAGS: -Wno-error=implicit-int -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=incompatible-pointer-types
         run: |
           export PATH=/usr/lib/llvm-18/bin:$PATH
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 CC="ccache clang" O=out veux_defconfig
